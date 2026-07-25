@@ -1,0 +1,16 @@
+# Garmin auth tokens — NEVER commit these (they go in a GitHub secret instead)
+.garminconnect/
+garmin_tokens*.json
+GARMINTOKENS*
+*.session
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
