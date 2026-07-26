@@ -421,8 +421,9 @@ const escapeHtml=(s)=>String(s==null?"":s).replace(/[<>&"]/g,c=>({"<":"&lt;",">"
   if(localStorage.getItem(KEY)===PASS_HASH){ lock.classList.add("hidden"); return; }
   const input=document.getElementById("lock-input"), btn=document.getElementById("lock-btn"), err=document.getElementById("lock-err");
   async function tryUnlock(){
-    const h=await sha((input.value||"").trim().toLowerCase());
-    if(h===PASS_HASH){ localStorage.setItem(KEY,PASS_HASH); lock.classList.add("hidden"); }
+    const pc=(input.value||"").trim().toLowerCase();
+    const h=await sha(pc);
+    if(h===PASS_HASH){ localStorage.setItem(KEY,PASS_HASH); localStorage.setItem("wsdash-pc",pc); lock.classList.add("hidden"); if(typeof loadGarmin==="function") loadGarmin(); }
     else { err.textContent="Incorrect passcode"; input.value=""; input.focus(); }
   }
   btn.addEventListener("click",tryUnlock);
@@ -467,18 +468,19 @@ const iScale=`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke
   tick(); setInterval(tick,1000*20);
 })();
 
-/* ---------- Metrics (mock; wired to Garmin in Phase 2) ---------- */
-(function(){
-  // status: fills bar color by how close to goal. lowerBetter/trend metrics show a delta instead.
+/* ---------- Metrics — Garmin data, falling back to sample until decrypted data loads ---------- */
+function renderMetrics(g){
+  g=g||{};
+  const st=g.steps||{}, cal=g.calories||{}, rhr=g.resting_hr||{}, wt=g.weight_lb||{};
   const metrics=[
-    {label:"Steps",       value:8432, unit:"", goal:10000, fmt:v=>v.toLocaleString(), icon:iSteps},
-    {label:"Calories",    type:"donut", active:612, resting:1500, icon:iFlame},
-    {label:"Distance",    value:4.2,  unit:"mi", goal:5,    fmt:v=>v.toFixed(1), icon:iMap},
-    {label:"Sleep",       value:7.2,  unit:"h",  goal:8,    fmt:v=>v.toFixed(1), icon:iMoon},
-    {label:"Resting HR",  value:54,   unit:"bpm", delta:-2, deltaGood:"down", fmt:v=>v, icon:iHeart},
-    {label:"Weight",      value:168.4,unit:"lb", delta:-0.6, deltaGood:"down", fmt:v=>v.toFixed(1), icon:iScale},
+    {label:"Steps",      value: st.value??8432, unit:"", goal: st.goal??10000, fmt:v=>v.toLocaleString(), icon:iSteps},
+    {label:"Calories",   type:"donut", active: cal.active??612, resting: cal.resting??1500, icon:iFlame},
+    {label:"Distance",   value: g.distance_mi??4.2, unit:"mi", goal:5, fmt:v=>v.toFixed(1), icon:iMap},
+    {label:"Sleep",      value: g.sleep_h??7.2, unit:"h", goal:8, fmt:v=>v.toFixed(1), icon:iMoon},
+    {label:"Resting HR", value: rhr.value??54, unit:"bpm", delta: rhr.delta, deltaGood:"down", fmt:v=>v, icon:iHeart},
+    {label:"Weight",     value: wt.value??168.4, unit:"lb", delta: wt.delta, deltaGood:"down", fmt:v=>v.toFixed(1), icon:iScale},
   ];
-  const wrap=$("#metrics");
+  const wrap=$("#metrics"); wrap.innerHTML="";
   metrics.forEach(m=>{
     const t=el("div","tile");
     if(m.type==="donut"){
@@ -498,7 +500,7 @@ const iScale=`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke
     if(pct!=null){
       barOrDelta=`<div class="bar ${cls}"><i style="width:${pct}%"></i></div>
         <div class="goal">${pct}% of ${m.fmt(m.goal)}${m.unit?" "+m.unit:""} goal</div>`;
-    }else{
+    }else if(m.delta!=null){
       const dir=m.delta<0?"down":m.delta>0?"up":"flat";
       const good=(dir===m.deltaGood);
       const arrow=dir==="down"?"▼":dir==="up"?"▲":"■";
@@ -510,7 +512,26 @@ const iScale=`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke
       ${barOrDelta}`;
     wrap.appendChild(t);
   });
-})();
+}
+renderMetrics(null);   // sample until real (encrypted) data loads
+
+/* ---------- Decrypt + load Garmin data (needs passcode from unlock) ---------- */
+async function decryptBlob(blob, passcode){
+  const dec=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+  const base=await crypto.subtle.importKey("raw", new TextEncoder().encode(passcode), "PBKDF2", false, ["deriveKey"]);
+  const key=await crypto.subtle.deriveKey({name:"PBKDF2", salt:dec(blob.salt), iterations:200000, hash:"SHA-256"}, base, {name:"AES-GCM", length:256}, false, ["decrypt"]);
+  const pt=await crypto.subtle.decrypt({name:"AES-GCM", iv:dec(blob.iv)}, key, dec(blob.ct));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+async function loadGarmin(){
+  const pc=localStorage.getItem("wsdash-pc");
+  if(!pc) return;
+  try{
+    const blob=await fetch("data/garmin.enc.json",{cache:"no-store"}).then(r=>r.ok?r.json():Promise.reject(r.status));
+    renderMetrics(await decryptBlob(blob, pc));
+  }catch(e){ console.debug("[garmin] no live data yet:", e); }
+}
+loadGarmin();
 
 /* ---------- Calendar: current-week strip + selected-day events ---------- */
 let CAL_EVENTS=[]; let CAL_SEL=null;
