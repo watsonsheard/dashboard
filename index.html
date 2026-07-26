@@ -268,10 +268,32 @@
   .fx-foot{display:flex; align-items:center; justify-content:space-between; margin-top:10px; padding-top:9px; border-top:1px solid var(--border);}
   .fx-role{font-family:var(--mono); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--accent-2);}
   .fx-pay{font-family:var(--mono); font-size:13px; font-weight:700; color:var(--good);}
+  /* lock screen */
+  .lock{position:fixed; inset:0; z-index:9999; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:20px;}
+  .lock.hidden{display:none;}
+  .lock-box{width:100%; max-width:320px; text-align:center; display:flex; flex-direction:column; gap:11px;}
+  .lock-title{font-family:var(--display); font-weight:700; font-size:25px; letter-spacing:-.03em;}
+  .lock-sub{font-family:var(--mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); margin-bottom:6px;}
+  .lock input{font-family:var(--mono); font-size:15px; text-align:center; letter-spacing:.08em; padding:12px; border:1px solid var(--border-2); border-radius:var(--radius-sm); background:var(--surface); color:var(--ink);}
+  .lock input:focus{outline:none; border-color:var(--accent);}
+  .lock button{font-family:var(--mono); font-weight:700; text-transform:uppercase; letter-spacing:.06em; font-size:12px; padding:11px; border:none; border-radius:var(--radius-sm); background:var(--accent); color:#fff; cursor:pointer;}
+  .lock button:hover{background:var(--accent-2);}
+  .lock-err{font-family:var(--mono); font-size:11px; color:var(--bad); min-height:15px;}
 </style>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
+  <!-- ================= LOCK SCREEN ================= -->
+  <div id="lock" class="lock">
+    <div class="lock-box">
+      <div class="lock-title">Watson Sheard</div>
+      <div class="lock-sub">Enter passcode to view dashboard</div>
+      <input id="lock-input" type="password" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Passcode" />
+      <button id="lock-btn" type="button">Unlock</button>
+      <div id="lock-err" class="lock-err"></div>
+    </div>
+  </div>
+
   <!-- ================= HEADER ================= -->
   <header>
     <div class="brand">
@@ -389,6 +411,24 @@
 const $ = (s)=>document.querySelector(s);
 const el = (t,c)=>{const e=document.createElement(t); if(c)e.className=c; return e;};
 const escapeHtml=(s)=>String(s==null?"":s).replace(/[<>&"]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c]));
+
+/* ---------- Passcode lock (per-device; remembers you after first unlock) ---------- */
+(function lockGate(){
+  const PASS_HASH="7b3f537e14bf238d806bb1a7e7e5c827bc40335af3a82cbaeb040cc8cfe2fb57";
+  const KEY="wsdash-unlock";
+  const lock=document.getElementById("lock");
+  const sha=async(s)=>{const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(s));return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("");};
+  if(localStorage.getItem(KEY)===PASS_HASH){ lock.classList.add("hidden"); return; }
+  const input=document.getElementById("lock-input"), btn=document.getElementById("lock-btn"), err=document.getElementById("lock-err");
+  async function tryUnlock(){
+    const h=await sha((input.value||"").trim().toLowerCase());
+    if(h===PASS_HASH){ localStorage.setItem(KEY,PASS_HASH); lock.classList.add("hidden"); }
+    else { err.textContent="Incorrect passcode"; input.value=""; input.focus(); }
+  }
+  btn.addEventListener("click",tryUnlock);
+  input.addEventListener("keydown",e=>{ if(e.key==="Enter") tryUnlock(); });
+  setTimeout(()=>input.focus(),50);
+})();
 const MPLS = {lat:44.9778, lon:-93.2650};
 
 /* Google Calendar — paste your OAuth Client ID here (Phase 2A). Safe to be public. */
